@@ -1,7 +1,6 @@
 package com.izi.ecommerce.config.middleware;
 
-import com.izi.ecommerce.common.errors.BadRequestException;
-import com.izi.ecommerce.common.errors.ResourceNotFoundException;
+import com.izi.ecommerce.common.errors.*;
 import com.izi.ecommerce.model.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +20,11 @@ import java.util.Map;
 @RestControllerAdvice
 public class GenericExceptionHandler {
 
-    @ExceptionHandler(ResourceNotFoundException.class)
+    @ExceptionHandler({
+            ResourceNotFoundException.class,
+            UserNotFoundException.class,
+            RoleNotFoundException.class
+    })
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public @ResponseBody ErrorResponse handleResourceNotFoundException(
             HttpServletRequest req,
@@ -80,6 +83,32 @@ public class GenericExceptionHandler {
         return ErrorResponse.builder()
                 .code(HttpStatus.BAD_REQUEST.value())
                 .message(errors.toString())
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    @ExceptionHandler(InvalidPasswordException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public @ResponseBody ErrorResponse handleInvalidPasswordException(HttpServletRequest req, InvalidPasswordException exception) {
+        return ErrorResponse.builder()
+                .code(HttpStatus.UNAUTHORIZED.value())
+                .message(exception.getMessage())
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    @ExceptionHandler({
+            UsernameAlreadyExistsException.class,
+            EmailAlreadyExitsException.class
+    })
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public @ResponseBody ErrorResponse handleConflictException(
+            HttpServletRequest req,
+            RuntimeException exception
+    ) {
+        return ErrorResponse.builder()
+                .code(HttpStatus.CONFLICT.value())
+                .message(exception.getMessage())
                 .timestamp(LocalDateTime.now())
                 .build();
     }
