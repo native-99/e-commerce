@@ -1,21 +1,20 @@
 package com.izi.ecommerce.controller;
 
-import com.izi.ecommerce.common.errors.ResourceNotFoundException;
-import com.izi.ecommerce.entity.Category;
-import com.izi.ecommerce.entity.Product;
-import com.izi.ecommerce.entity.ProductCategory;
-import com.izi.ecommerce.model.CategoryResponse;
+import com.izi.ecommerce.model.PaginatedProductResponse;
 import com.izi.ecommerce.model.ProductRequest;
 import com.izi.ecommerce.model.ProductResponse;
-import com.izi.ecommerce.repository.CategoryRepository;
-import com.izi.ecommerce.repository.ProductCategoryRepository;
-import com.izi.ecommerce.repository.ProductRepository;
+import com.izi.ecommerce.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -23,38 +22,54 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ProductController {
 
-    private final ProductRepository productRepository;
-    private final CategoryRepository categoryRepository;
-    private final ProductCategoryRepository productCategoryRepository;
+    private final ProductService productService;
 
     // GET localhost:3000/api/v1/products/2
     @GetMapping("/{id}")
     public ResponseEntity<ProductResponse> findProductById(
             @PathVariable(value = "id") Long productId
     ) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Produk tidak ditemukan"));
-
-        return ResponseEntity.ok(
-                ProductResponse.fromProductAndCategories(
-                        product,
-                        getCategoryResponses(product.getProductId())
-                )
-        );
+        return ResponseEntity.ok(productService.findById(productId));
     }
 
     // GET localhost:3000/api/v1/products
     @GetMapping
-    public ResponseEntity<List<ProductResponse>> getAllProduct() {
-        return ResponseEntity.ok(
-                productRepository.findAll()
-                        .stream()
-                        .map(product -> ProductResponse.fromProductAndCategories(
-                                product,
-                                getCategoryResponses(product.getProductId())
-                        ))
-                        .toList()
-        );
+    public ResponseEntity<PaginatedProductResponse> getAllProduct(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "product_id,asc") String[] sort,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String categoryName
+    ) {
+        List<Sort.Order> orders = new ArrayList<>();
+
+        if (sort[0].contains(",")) {
+            for (String sortOrder : sort) {
+                String[] _sort = sortOrder.split(",");
+                orders.add(new Sort.Order(
+                        getSortDirection(_sort.length > 1 ? _sort[1] : "asc"),
+                        getProductSortProperty(_sort[0])
+                ));
+            }
+        } else {
+            orders.add(new Sort.Order(
+                    getSortDirection(sort.length > 1 ? sort[1] : "asc"),
+                    getProductSortProperty(sort[0])
+            ));
+        }
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(orders));
+        Page<ProductResponse> productResponses;
+
+        if (name != null && !name.isEmpty()) {
+            productResponses = productService.findByNameAndPageable(name, pageable);
+        } else if (categoryName != null && !categoryName.isBlank()) {
+            productResponses = productService.findByCategoryName(categoryName, pageable);
+        } else {
+            productResponses = productService.findByPage(pageable);
+        }
+
+        return ResponseEntity.ok(productService.convertProductPage(productResponses));
     }
 
     // POST localhost:3000/api/v1/products
@@ -62,19 +77,8 @@ public class ProductController {
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody ProductRequest request
     ) {
-        Product product = Product.builder()
-                .name(request.getName())
-                .price(request.getPrice())
-                .description(request.getDescription())
-                .stockQuantity(0)
-                .weight(BigDecimal.valueOf(1000))
-                .build();
-
-        Product savedProduct = productRepository.save(product);
-
-        return ResponseEntity.ok(
-                ProductResponse.fromProductAndCategories(savedProduct, List.of())
-        );
+        ProductResponse response = productService.create(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // PUT localhost:3000/api/v1/products/2
@@ -83,38 +87,33 @@ public class ProductController {
             @Valid @RequestBody ProductRequest request,
             @PathVariable(name = "id") Long productId
     ) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Produk tidak ditemukan"));
-
-        product.setName(request.getName());
-        product.setPrice(request.getPrice());
-        product.setDescription(request.getDescription());
-
-        Product updatedProduct = productRepository.save(product);
-
-        return ResponseEntity.ok(
-                ProductResponse.fromProductAndCategories(
-                        updatedProduct,
-                        getCategoryResponses(updatedProduct.getProductId())
-                )
-        );
+        return ResponseEntity.ok(productService.update(productId, request));
     }
 
-    private List<CategoryResponse> getCategoryResponses(Long productId) {
-        List<Long> categoryIds = productCategoryRepository.findByProductId(productId)
-                .stream()
-                .map(ProductCategory::getId)
-                .map(ProductCategory.ProductCategoryId::getCategoryId)
-                .toList();
+    // DELETE localhost:3000/api/v1/products/2
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(
+            @PathVariable(name = "id") Long productId
+    ) {
+        productService.delete(productId);
+        return ResponseEntity.noContent().build();
+    }
 
-        if (categoryIds.isEmpty()) {
-            return List.of();
+    private Sort.Direction getSortDirection(String direction) {
+        if ("desc".equalsIgnoreCase(direction)) {
+            return Sort.Direction.DESC;
         }
 
-        List<Category> categories = categoryRepository.findAllById(categoryIds);
+        return Sort.Direction.ASC;
+    }
 
-        return categories.stream()
-                .map(CategoryResponse::fromCategory)
-                .toList();
+    private String getProductSortProperty(String property) {
+        return switch (property) {
+            case "product_id" -> "productId";
+            case "stock_quantity" -> "stockQuantity";
+            case "created_at" -> "createdAt";
+            case "updated_at" -> "updatedAt";
+            default -> property;
+        };
     }
 }
