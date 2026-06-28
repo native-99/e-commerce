@@ -4,13 +4,17 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import tools.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy;
 import tools.jackson.databind.annotation.JsonNaming;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @JsonNaming(SnakeCaseStrategy.class)
 public class UserRegisterRequest {
 
